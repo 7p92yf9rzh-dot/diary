@@ -504,7 +504,8 @@ function addEntry() {
   const feed = document.getElementById('feed');
   document.getElementById('empty').style.display = 'none';
   const today = entry.ts.slice(0,10);
-  const lastDiv = feed.querySelector('.date-div:last-of-type');
+  const divs = feed.querySelectorAll('.date-div');
+  const lastDiv = divs.length > 0 ? divs[divs.length - 1] : null;
   const lastDate = lastDiv ? lastDiv.dataset.date : null;
   if (lastDate !== today) {
     const div = document.createElement('div');
