@@ -564,9 +564,22 @@ function fmtDate(iso) {
   const w = days[new Date(iso + 'T00:00:00').getDay()];
   return `${y}年${parseInt(m)}月${parseInt(d)}日（${w}）`;
 }
+// ISOタイムスタンプ(UTC)を日本時間(UTC+9)に変換してから各要素を取り出す
+function toJST(iso) {
+  return new Date(new Date(iso).getTime() + 9 * 60 * 60 * 1000);
+}
 function fmtTime(iso) {
-  const dt = new Date(iso);
-  return `${String(dt.getHours()).padStart(2,'0')}:${String(dt.getMinutes()).padStart(2,'0')}`;
+  const dt = toJST(iso);
+  return `${String(dt.getUTCHours()).padStart(2,'0')}:${String(dt.getUTCMinutes()).padStart(2,'0')}`;
+}
+// 日本時間での日付文字列(YYYY-MM-DD)。1日の区切りは日本時間の0時。
+function toJSTDateStr(iso) {
+  const dt = toJST(iso);
+  return `${dt.getUTCFullYear()}-${String(dt.getUTCMonth()+1).padStart(2,'0')}-${String(dt.getUTCDate()).padStart(2,'0')}`;
+}
+// 現在時刻を日本時間の日付文字列(YYYY-MM-DD)として取得
+function todayJSTStr() {
+  return toJSTDateStr(new Date().toISOString());
 }
 function toDateStr(dt) {
   return `${dt.getFullYear()}-${String(dt.getMonth()+1).padStart(2,'0')}-${String(dt.getDate()).padStart(2,'0')}`;
@@ -593,7 +606,7 @@ function renderFeed() {
 
   const groups = {};
   entries.forEach((e, i) => {
-    const d = e.ts.slice(0,10);
+    const d = toJSTDateStr(e.ts);
     if (!groups[d]) groups[d] = [];
     groups[d].push({ ...e, _i: i });
   });
@@ -680,7 +693,7 @@ function addEntry() {
 
   const feed = document.getElementById('feed');
   document.getElementById('empty').style.display = 'none';
-  const today = entry.ts.slice(0,10);
+  const today = toJSTDateStr(entry.ts);
   const divs = feed.querySelectorAll('.date-div');
   const lastDiv = divs.length > 0 ? divs[divs.length - 1] : null;
   const lastDate = lastDiv ? lastDiv.dataset.date : null;
@@ -751,19 +764,22 @@ document.getElementById('del-ok').onclick = () => {
 
 // ── Calendar ──
 function renderCal() {
-  const now = new Date();
-  if (calYear === undefined) { calYear = now.getFullYear(); calMonth = now.getMonth(); }
+  if (calYear === undefined) {
+    const [y, m] = todayJSTStr().split('-');
+    calYear = parseInt(y, 10);
+    calMonth = parseInt(m, 10) - 1;
+  }
   renderCalGrid();
   if (calSelected) renderCalEntries(calSelected);
-  else renderCalEntries(toDateStr(now));
+  else renderCalEntries(todayJSTStr());
 }
 
 function renderCalGrid() {
   document.getElementById('cal-month-label').textContent =
     `${calYear}年 ${calMonth + 1}月`;
 
-  const entryDates = new Set(entries.map(e => e.ts.slice(0,10)));
-  const todayStr = toDateStr(new Date());
+  const entryDates = new Set(entries.map(e => toJSTDateStr(e.ts)));
+  const todayStr = todayJSTStr();
   const firstDay = new Date(calYear, calMonth, 1).getDay();
   const daysInMonth = new Date(calYear, calMonth + 1, 0).getDate();
 
@@ -795,7 +811,7 @@ function renderCalGrid() {
 function renderCalEntries(iso) {
   calSelected = iso;
   const container = document.getElementById('cal-entries');
-  const dayEntries = entries.filter(e => e.ts.slice(0,10) === iso);
+  const dayEntries = entries.filter(e => toJSTDateStr(e.ts) === iso);
   if (dayEntries.length === 0) {
     container.innerHTML = `<div class="cal-empty">${fmtDate(iso)}の記録はありません。</div>`;
     return;
@@ -856,8 +872,7 @@ function exportBackup() {
   const data = JSON.stringify(entries, null, 2);
   const blob = new Blob([data], { type: 'application/json' });
   const url = URL.createObjectURL(blob);
-  const now = new Date();
-  const stamp = `${now.getFullYear()}${String(now.getMonth()+1).padStart(2,'0')}${String(now.getDate()).padStart(2,'0')}`;
+  const stamp = todayJSTStr().replace(/-/g, '');
   const a = document.createElement('a');
   a.href = url;
   a.download = `hitorigoto-diary-backup-${stamp}.json`;
