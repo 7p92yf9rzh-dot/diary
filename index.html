@@ -324,6 +324,68 @@ textarea::placeholder { color: var(--soft); }
 .modal-btns { display: flex; gap: 9px; justify-content: flex-end; }
 .btn-cancel { background: none; border: 1px solid rgba(0,0,0,0.14); border-radius: 8px; padding: 6px 14px; font-size: 0.78rem; font-family: inherit; cursor: pointer; color: var(--soft); }
 .btn-danger  { background: #c0523a; border: none; border-radius: 8px; padding: 6px 14px; font-size: 0.78rem; font-family: inherit; cursor: pointer; color: #fff; }
+.btn-primary { background: var(--accent); border: none; border-radius: 8px; padding: 9px 14px; font-size: 0.82rem; font-family: inherit; cursor: pointer; color: #fff; }
+.modal-col { display: flex; flex-direction: column; align-items: stretch; gap: 9px; }
+
+/* ── Header menu ── */
+.menu-btn {
+  margin-left: auto;
+  background: none;
+  border: none;
+  font-size: 1.15rem;
+  line-height: 1;
+  cursor: pointer;
+  color: var(--soft);
+  padding: 4px 6px;
+}
+.settings-list { display: flex; flex-direction: column; gap: 8px; margin-bottom: 4px; }
+.settings-item {
+  display: flex;
+  align-items: center;
+  gap: 10px;
+  background: var(--bg);
+  border: none;
+  border-radius: 10px;
+  padding: 12px 14px;
+  font-size: 0.85rem;
+  font-family: inherit;
+  color: var(--ink);
+  cursor: pointer;
+  text-align: left;
+}
+.settings-item .ic { font-size: 1.1rem; }
+.import-info { font-size: 0.8rem; color: var(--soft); margin: 10px 0 4px; }
+
+/* ── Edit banner ── */
+.edit-banner {
+  display: none;
+  align-items: center;
+  justify-content: space-between;
+  background: rgba(184,164,114,0.18);
+  border-radius: 10px;
+  padding: 7px 12px;
+  margin-bottom: 8px;
+  font-size: 0.72rem;
+  color: var(--gold);
+}
+.edit-banner.show { display: flex; }
+.edit-banner button {
+  background: none;
+  border: none;
+  color: var(--soft);
+  font-size: 0.72rem;
+  font-family: inherit;
+  cursor: pointer;
+  text-decoration: underline;
+}
+.edit-btn {
+  background: none; border: none; cursor: pointer;
+  color: #ccc; font-size: 0.65rem; padding: 1px 3px; border-radius: 4px;
+  transition: color 0.15s;
+}
+.edit-btn:hover { color: var(--accent); }
+.cal-entry-time { flex-wrap: wrap; }
+.cal-entry-actions { margin-left: auto; display: flex; gap: 8px; }
 </style>
 </head>
 <body>
@@ -332,6 +394,7 @@ textarea::placeholder { color: var(--soft); }
   <div class="header-top">
     <h1>ひとりごと日記</h1>
     <span class="sub">自分だけの対話ノート</span>
+    <button class="menu-btn" id="settings-open" aria-label="設定">⋯</button>
   </div>
   <div class="tabs">
     <button class="tab on" id="tab-feed" onclick="switchTab('feed')">📝 日記</button>
@@ -363,6 +426,10 @@ textarea::placeholder { color: var(--soft); }
 
 <div id="composer">
   <div class="c-inner">
+    <div class="edit-banner" id="edit-banner">
+      <span>✏️ この記録を編集しています。</span>
+      <button id="edit-cancel-btn">キャンセル</button>
+    </div>
     <div class="mood-bar">
       <span class="mood-lbl">気分：</span>
       <button class="mbtn" data-mood="😊 うれしい">😊 うれしい</button>
@@ -392,6 +459,33 @@ textarea::placeholder { color: var(--soft); }
   </div>
 </div>
 
+<div class="overlay" id="settings-modal">
+  <div class="modal">
+    <h2>設定・バックアップ</h2>
+    <p>日記のデータをJSONファイルとして端末に保存できます。機種変更やブラウザの変更の前には、バックアップを取ることをおすすめします。</p>
+    <div class="settings-list">
+      <button class="settings-item" id="export-btn"><span class="ic">📤</span>JSONファイルを書き出す</button>
+      <button class="settings-item" id="import-btn"><span class="ic">📥</span>JSONファイルから復元する</button>
+      <input type="file" id="import-file" accept="application/json,.json" style="display:none;">
+    </div>
+    <div class="modal-btns">
+      <button class="btn-cancel" id="settings-close">閉じる</button>
+    </div>
+  </div>
+</div>
+
+<div class="overlay" id="import-modal">
+  <div class="modal">
+    <h2>データを復元しますか？</h2>
+    <p class="import-info" id="import-info"></p>
+    <div class="modal-col">
+      <button class="btn-primary" id="import-merge">今のデータに追加する</button>
+      <button class="btn-danger" id="import-replace">今のデータを置き換える</button>
+      <button class="btn-cancel" id="import-cancel">やめる</button>
+    </div>
+  </div>
+</div>
+
 <script>
 const STORAGE_KEY = 'hitorigoto-diary-v1';
 
@@ -406,6 +500,8 @@ let entries = load();
 let selectedMood = null;
 let pendingDeleteId = null;
 let calYear, calMonth, calSelected = null;
+let editingId = null;
+let pendingImportData = null;
 
 function fmtDate(iso) {
   const [y,m,d] = iso.split('-');
@@ -477,6 +573,11 @@ function makeBubble(entry) {
     tag.textContent = entry.mood;
     meta.appendChild(tag);
   }
+  const edit = document.createElement('button');
+  edit.className = 'edit-btn';
+  edit.textContent = '編集';
+  edit.onclick = () => startEdit(entry.id);
+  meta.appendChild(edit);
   const del = document.createElement('button');
   del.className = 'del-btn';
   del.textContent = '削除';
@@ -500,6 +601,20 @@ ta.addEventListener('input', () => {
 function addEntry() {
   const text = ta.value.trim();
   if (!text) return;
+
+  if (editingId !== null) {
+    const target = entries.find(e => e.id === editingId);
+    if (target) {
+      target.text = text;
+      target.mood = selectedMood;
+      save(entries);
+    }
+    cancelEdit();
+    renderFeed();
+    if (calSelected) renderCalEntries(calSelected);
+    return;
+  }
+
   const entry = { id: Date.now(), text, mood: selectedMood, ts: new Date().toISOString() };
   entries.push(entry);
   save(entries);
@@ -524,6 +639,32 @@ function addEntry() {
   feed.appendChild(makeBubble(entry));
 }
 
+// ── Edit ──
+function startEdit(id) {
+  const target = entries.find(e => e.id === id);
+  if (!target) return;
+  editingId = id;
+  ta.value = target.text;
+  ta.style.height = 'auto';
+  ta.style.height = Math.min(ta.scrollHeight, 140) + 'px';
+  selectedMood = target.mood || null;
+  document.querySelectorAll('.mbtn').forEach(b => {
+    b.classList.toggle('on', b.dataset.mood === selectedMood);
+  });
+  document.getElementById('edit-banner').classList.add('show');
+  ta.focus();
+  window.scrollTo({ top: document.body.scrollHeight, behavior: 'smooth' });
+}
+function cancelEdit() {
+  editingId = null;
+  ta.value = '';
+  ta.style.height = 'auto';
+  selectedMood = null;
+  document.querySelectorAll('.mbtn').forEach(b => b.classList.remove('on'));
+  document.getElementById('edit-banner').classList.remove('show');
+}
+document.getElementById('edit-cancel-btn').onclick = cancelEdit;
+
 // ── Mood ──
 document.querySelectorAll('.mbtn').forEach(btn => {
   btn.onclick = () => {
@@ -546,6 +687,7 @@ document.getElementById('del-cancel').onclick = () => {
 document.getElementById('del-ok').onclick = () => {
   entries = entries.filter(e => e.id !== pendingDeleteId);
   save(entries);
+  if (editingId === pendingDeleteId) cancelEdit();
   pendingDeleteId = null;
   document.getElementById('del-modal').classList.remove('open');
   renderFeed();
@@ -610,6 +752,19 @@ function renderCalEntries(iso) {
     const timeLine = document.createElement('div');
     timeLine.className = 'cal-entry-time';
     timeLine.innerHTML = `<span>${fmtTime(entry.ts)}</span>${entry.mood ? `<span class="mtag">${entry.mood}</span>` : ''}`;
+    const actions = document.createElement('div');
+    actions.className = 'cal-entry-actions';
+    const editBtn = document.createElement('button');
+    editBtn.className = 'edit-btn';
+    editBtn.textContent = '編集';
+    editBtn.onclick = () => { switchTab('feed'); startEdit(entry.id); };
+    const delBtn = document.createElement('button');
+    delBtn.className = 'del-btn';
+    delBtn.textContent = '削除';
+    delBtn.onclick = () => confirmDelete(entry.id);
+    actions.appendChild(editBtn);
+    actions.appendChild(delBtn);
+    timeLine.appendChild(actions);
     const txt = document.createElement('div');
     txt.className = 'cal-entry-text';
     txt.textContent = entry.text;
@@ -632,6 +787,81 @@ document.getElementById('cal-next').onclick = () => {
   calSelected = null;
   renderCalGrid();
   document.getElementById('cal-entries').innerHTML = '';
+};
+
+// ── Settings / Backup ──
+document.getElementById('settings-open').onclick = () => {
+  document.getElementById('settings-modal').classList.add('open');
+};
+document.getElementById('settings-close').onclick = () => {
+  document.getElementById('settings-modal').classList.remove('open');
+};
+
+function exportBackup() {
+  const data = JSON.stringify(entries, null, 2);
+  const blob = new Blob([data], { type: 'application/json' });
+  const url = URL.createObjectURL(blob);
+  const now = new Date();
+  const stamp = `${now.getFullYear()}${String(now.getMonth()+1).padStart(2,'0')}${String(now.getDate()).padStart(2,'0')}`;
+  const a = document.createElement('a');
+  a.href = url;
+  a.download = `hitorigoto-diary-backup-${stamp}.json`;
+  document.body.appendChild(a);
+  a.click();
+  document.body.removeChild(a);
+  setTimeout(() => URL.revokeObjectURL(url), 2000);
+}
+document.getElementById('export-btn').onclick = exportBackup;
+
+document.getElementById('import-btn').onclick = () => {
+  document.getElementById('import-file').click();
+};
+document.getElementById('import-file').addEventListener('change', e => {
+  const file = e.target.files[0];
+  if (!file) return;
+  const reader = new FileReader();
+  reader.onload = () => {
+    try {
+      const data = JSON.parse(reader.result);
+      if (!Array.isArray(data)) throw new Error('形式が正しくありません。');
+      const valid = data.every(d => d && typeof d.text === 'string' && typeof d.ts === 'string');
+      if (!valid) throw new Error('形式が正しくありません。');
+      pendingImportData = data;
+      document.getElementById('import-info').textContent =
+        `このファイルには${data.length}件の記録が含まれています。追加するか、今のデータをすべて置き換えるか選んでください。`;
+      document.getElementById('settings-modal').classList.remove('open');
+      document.getElementById('import-modal').classList.add('open');
+    } catch (err) {
+      alert('ファイルの読み込みに失敗しました。正しいバックアップファイルか確認してください。');
+    }
+    document.getElementById('import-file').value = '';
+  };
+  reader.readAsText(file);
+});
+
+function finishImport() {
+  save(entries);
+  pendingImportData = null;
+  document.getElementById('import-modal').classList.remove('open');
+  renderFeed();
+  calSelected = null;
+  if (document.getElementById('cal-view').classList.contains('show')) renderCal();
+}
+document.getElementById('import-merge').onclick = () => {
+  if (!pendingImportData) return;
+  const existingIds = new Set(entries.map(e => e.id));
+  const additions = pendingImportData.filter(d => !existingIds.has(d.id));
+  entries = entries.concat(additions).sort((a, b) => new Date(a.ts) - new Date(b.ts));
+  finishImport();
+};
+document.getElementById('import-replace').onclick = () => {
+  if (!pendingImportData) return;
+  entries = pendingImportData.slice().sort((a, b) => new Date(a.ts) - new Date(b.ts));
+  finishImport();
+};
+document.getElementById('import-cancel').onclick = () => {
+  pendingImportData = null;
+  document.getElementById('import-modal').classList.remove('open');
 };
 
 // ── Init ──
