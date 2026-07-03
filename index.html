@@ -56,6 +56,30 @@ header {
 header h1 { font-size: 1.05rem; font-weight: 500; color: var(--accent); letter-spacing: 0.04em; }
 header .sub { font-size: 0.68rem; color: var(--soft); }
 
+.motto-bar {
+  padding: 0 18px 10px;
+  overflow: hidden;
+}
+.motto-scale {
+  transform: scale(0.675);
+  transform-origin: left center;
+  width: 148.15%;
+}
+.motto-bar input {
+  width: 100%;
+  border: none;
+  background: none;
+  outline: none;
+  font-family: inherit;
+  font-size: 16px; /* iOSでフォーカス時に自動ズームさせないための最小サイズ。見た目のサイズは親のtransformで調整 */
+  color: var(--gold);
+  line-height: 1.5;
+  padding: 2px 0 4px;
+  border-bottom: 1px dashed transparent;
+}
+.motto-bar input::placeholder { color: var(--soft); opacity: 0.75; }
+.motto-bar input:focus { border-bottom-color: var(--gold); }
+
 /* ── Tabs ── */
 .tabs {
   display: flex;
@@ -394,6 +418,7 @@ textarea::placeholder { color: var(--soft); }
   .header-top { padding: 16px 26px; gap: 14px; }
   header h1 { font-size: 1.3rem; }
   header .sub { font-size: 0.82rem; }
+  .motto-scale { transform: scale(0.85); width: 117.6%; }
   .menu-btn { font-size: 1.35rem; }
   .tab { font-size: 0.88rem; padding: 12px 0; }
 
@@ -451,6 +476,7 @@ textarea::placeholder { color: var(--soft); }
     <span class="sub">自分だけの対話ノート</span>
     <button class="menu-btn" id="settings-open" aria-label="設定">⋯</button>
   </div>
+  <div class="motto-bar" id="motto-bar"><div class="motto-scale"><input type="text" id="motto-input" placeholder="タップしてモットー・合言葉を書く" maxlength="60"></div></div>
   <div class="tabs">
     <button class="tab on" id="tab-feed" onclick="switchTab('feed')">📝 日記</button>
     <button class="tab" id="tab-cal" onclick="switchTab('cal')">📅 カレンダー</button>
@@ -517,6 +543,7 @@ textarea::placeholder { color: var(--soft); }
 <div class="overlay" id="settings-modal">
   <div class="modal">
     <h2>設定・バックアップ</h2>
+
     <p>日記のデータをJSONファイルとして端末に保存できます。機種変更やブラウザの変更の前には、バックアップを取ることをおすすめします。</p>
     <div class="settings-list">
       <button class="settings-item" id="export-btn"><span class="ic">📤</span>JSONファイルを書き出す</button>
@@ -543,6 +570,7 @@ textarea::placeholder { color: var(--soft); }
 
 <script>
 const STORAGE_KEY = 'hitorigoto-diary-v1';
+const MOTTO_KEY = 'hitorigoto-diary-motto';
 
 function load() {
   try { return JSON.parse(localStorage.getItem(STORAGE_KEY) || '[]'); } catch(e) { return []; }
@@ -869,7 +897,12 @@ document.getElementById('settings-close').onclick = () => {
 };
 
 function exportBackup() {
-  const data = JSON.stringify(entries, null, 2);
+  const payload = {
+    entries: entries,
+    motto: loadMotto(),
+    exportedAt: new Date().toISOString(),
+  };
+  const data = JSON.stringify(payload, null, 2);
   const blob = new Blob([data], { type: 'application/json' });
   const url = URL.createObjectURL(blob);
   const stamp = todayJSTStr().replace(/-/g, '');
@@ -883,6 +916,8 @@ function exportBackup() {
 }
 document.getElementById('export-btn').onclick = exportBackup;
 
+let pendingImportMotto = undefined;
+
 document.getElementById('import-btn').onclick = () => {
   document.getElementById('import-file').click();
 };
@@ -892,13 +927,26 @@ document.getElementById('import-file').addEventListener('change', e => {
   const reader = new FileReader();
   reader.onload = () => {
     try {
-      const data = JSON.parse(reader.result);
-      if (!Array.isArray(data)) throw new Error('形式が正しくありません。');
-      const valid = data.every(d => d && typeof d.text === 'string' && typeof d.ts === 'string');
+      const raw = JSON.parse(reader.result);
+      let list, motto;
+      if (Array.isArray(raw)) {
+        // 旧形式：記録の配列のみ（モットーは含まれない）
+        list = raw;
+        motto = undefined;
+      } else if (raw && Array.isArray(raw.entries)) {
+        // 新形式：記録とモットーをまとめて保持
+        list = raw.entries;
+        motto = typeof raw.motto === 'string' ? raw.motto : undefined;
+      } else {
+        throw new Error('形式が正しくありません。');
+      }
+      const valid = list.every(d => d && typeof d.text === 'string' && typeof d.ts === 'string');
       if (!valid) throw new Error('形式が正しくありません。');
-      pendingImportData = data;
+      pendingImportData = list;
+      pendingImportMotto = motto;
+      const mottoNote = motto ? '（モットーも含まれています）' : '';
       document.getElementById('import-info').textContent =
-        `このファイルには${data.length}件の記録が含まれています。追加するか、今のデータをすべて置き換えるか選んでください。`;
+        `このファイルには${list.length}件の記録が含まれています${mottoNote}。追加するか、今のデータをすべて置き換えるか選んでください。`;
       document.getElementById('settings-modal').classList.remove('open');
       document.getElementById('import-modal').classList.add('open');
     } catch (err) {
@@ -912,6 +960,7 @@ document.getElementById('import-file').addEventListener('change', e => {
 function finishImport() {
   save(entries);
   pendingImportData = null;
+  pendingImportMotto = undefined;
   document.getElementById('import-modal').classList.remove('open');
   renderFeed();
   calSelected = null;
@@ -922,20 +971,45 @@ document.getElementById('import-merge').onclick = () => {
   const existingIds = new Set(entries.map(e => e.id));
   const additions = pendingImportData.filter(d => !existingIds.has(d.id));
   entries = entries.concat(additions).sort((a, b) => new Date(a.ts) - new Date(b.ts));
+  // 「追加する」の場合は今のモットーを保持し、バックアップ側のモットーでは上書きしない
   finishImport();
 };
 document.getElementById('import-replace').onclick = () => {
   if (!pendingImportData) return;
   entries = pendingImportData.slice().sort((a, b) => new Date(a.ts) - new Date(b.ts));
+  if (pendingImportMotto !== undefined) {
+    saveMotto(pendingImportMotto);
+    renderMotto();
+  }
   finishImport();
 };
 document.getElementById('import-cancel').onclick = () => {
   pendingImportData = null;
+  pendingImportMotto = undefined;
   document.getElementById('import-modal').classList.remove('open');
 };
 
+function loadMotto() {
+  try { return localStorage.getItem(MOTTO_KEY) || ''; } catch(e) { return ''; }
+}
+function saveMotto(text) {
+  try { localStorage.setItem(MOTTO_KEY, text); } catch(e) {}
+}
+function renderMotto() {
+  document.getElementById('motto-input').value = loadMotto();
+  adjustCalPadding();
+}
+const mottoInput = document.getElementById('motto-input');
+mottoInput.addEventListener('blur', () => {
+  saveMotto(mottoInput.value.trim());
+});
+mottoInput.addEventListener('keydown', e => {
+  if (e.key === 'Enter') mottoInput.blur();
+});
+
 // ── Init ──
 renderFeed();
+renderMotto();
 
 // ヘッダーの実際の高さに合わせてcal-viewのpadding-topを調整
 function adjustCalPadding() {
