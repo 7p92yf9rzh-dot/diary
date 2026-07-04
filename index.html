@@ -32,7 +32,7 @@ html, body {
   color: var(--ink);
   font-family: 'Noto Sans JP', sans-serif;
   font-weight: 300;
-  font-size: 15px;
+  font-size: 17px;
   overflow-anchor: none;
   overflow-x: hidden;
 }
@@ -61,9 +61,9 @@ header .sub { font-size: 0.68rem; color: var(--soft); }
   overflow: hidden;
 }
 .motto-scale {
-  transform: scale(0.675);
+  transform: scale(0.8);
   transform-origin: left center;
-  width: 148.15%;
+  width: 125%;
 }
 .motto-bar input {
   width: 100%;
@@ -308,7 +308,7 @@ textarea {
   border: 1px solid rgba(0,0,0,0.1);
   border-radius: 14px;
   padding: 10px 14px;
-  font-size: 16px;
+  font-size: 18px;
   font-family: inherit;
   font-weight: 300;
   color: var(--ink);
@@ -413,12 +413,12 @@ textarea::placeholder { color: var(--soft); }
 
 /* ── Responsive: タブレット以上 ── */
 @media (min-width: 700px) {
-  html, body { font-size: 17px; }
+  html, body { font-size: 19px; }
 
   .header-top { padding: 16px 26px; gap: 14px; }
   header h1 { font-size: 1.3rem; }
   header .sub { font-size: 0.82rem; }
-  .motto-scale { transform: scale(0.85); width: 117.6%; }
+  .motto-scale { transform: scale(0.95); width: 105.3%; }
   .menu-btn { font-size: 1.35rem; }
   .tab { font-size: 0.88rem; padding: 12px 0; }
 
@@ -438,7 +438,7 @@ textarea::placeholder { color: var(--soft); }
 
   .mood-lbl { font-size: 0.8rem; }
   .mbtn { font-size: 0.8rem; padding: 4px 12px; }
-  textarea { font-size: 17px; padding: 13px 16px; min-height: 52px; border-radius: 16px; }
+  textarea { font-size: 19px; padding: 13px 16px; min-height: 52px; border-radius: 16px; }
   #send { width: 50px; height: 50px; border-radius: 14px; }
   #composer { padding: 14px 26px calc(16px + env(safe-area-inset-bottom)); }
 
@@ -639,13 +639,15 @@ function renderFeed() {
     groups[d].push({ ...e, _i: i });
   });
   const frag = document.createDocumentFragment();
-  Object.keys(groups).sort().forEach(date => {
+  Object.keys(groups).sort().reverse().forEach(date => {
     const div = document.createElement('div');
     div.className = 'date-div';
     div.dataset.date = date;
     div.innerHTML = `<span>${fmtDate(date)}</span>`;
     frag.appendChild(div);
-    groups[date].forEach(entry => frag.appendChild(makeBubble(entry)));
+    groups[date]
+      .sort((a, b) => new Date(b.ts) - new Date(a.ts))
+      .forEach(entry => frag.appendChild(makeBubble(entry)));
   });
   feed.appendChild(frag);
 }
@@ -719,20 +721,9 @@ function addEntry() {
   selectedMood = null;
   document.querySelectorAll('.mbtn').forEach(b => b.classList.remove('on'));
 
-  const feed = document.getElementById('feed');
-  document.getElementById('empty').style.display = 'none';
-  const today = toJSTDateStr(entry.ts);
-  const divs = feed.querySelectorAll('.date-div');
-  const lastDiv = divs.length > 0 ? divs[divs.length - 1] : null;
-  const lastDate = lastDiv ? lastDiv.dataset.date : null;
-  if (lastDate !== today) {
-    const div = document.createElement('div');
-    div.className = 'date-div';
-    div.dataset.date = today;
-    div.innerHTML = `<span>${fmtDate(today)}</span>`;
-    feed.appendChild(div);
-  }
-  feed.appendChild(makeBubble(entry));
+  renderFeed();
+  if (calSelected) renderCalEntries(calSelected);
+  window.scrollTo({ top: 0, behavior: 'smooth' });
 }
 
 // ── Edit ──
